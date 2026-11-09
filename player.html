@@ -103,6 +103,13 @@ if (kind === 'youtube' && id) {
 } else {
     showMsg('Chybí odkaz na video.');
 }
+    window.addEventListener('message', function(event) {
+    var data = event.data;
+    if (data.action === 'stop' || data.action === 'destroy') {
+        var stage = document.getElementById('stage');
+        if (stage) stage.innerHTML = '';
+    }
+});
 </script>
 </body>
 </html>
