@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>TV přehrávač</title>
+<style>
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    #stage, #stage iframe, video { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #000; }
+    #msg {
+        position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 80%;
+        text-align: center; display: none; padding: 22px 34px; border-radius: 28px;
+        background: rgba(20, 22, 34, 0.85); border: 1px solid rgba(255, 255, 255, 0.2);
+        font: 600 44px 'Segoe UI', Arial, sans-serif; color: #fff; z-index: 5; line-height: 1.3;
+    }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="msg"></div>
+<script>
+const q = new URLSearchParams(location.search);
+const kind = q.get('kind');
+const id = q.get('id');
+const src = q.get('src');
+const loop = q.get('loop') !== '0';
+let start = parseInt(q.get('start') || '0', 10) || 0;
+let volume = parseInt(q.get('volume') || '50', 10);
+let yt = null, vid = null, fixedSeek = false;
+
+function showMsg(t) {
+    const m = document.getElementById('msg');
+    m.textContent = t;
+    m.style.display = t ? 'block' : 'none';
+}
+
+function setVolume(v) {
+    volume = Math.max(0, Math.min(100, v));
+    if (yt && yt.setVolume) yt.setVolume(volume);
+    if (vid) vid.volume = volume / 100;
+}
+
+window.addEventListener('message', (e) => {
+    let d = e.data;
+    if (typeof d === 'string') { try { d = JSON.parse(d); } catch (_) { return; } }
+    if (d && d.action === 'volume') setVolume(d.volume);
+});
+
+if ((kind === 'youtube' && id) || (kind === 'file' && src)) showMsg('Načítám video…');
+
+if (kind === 'youtube' && id) {
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    document.head.appendChild(tag);
+
+    window.onYouTubeIframeAPIReady = () => {
+        const vars = {
+            autoplay: 1, controls: 0, disablekb: 1, fs: 0, modestbranding: 1, rel: 0,
+            iv_load_policy: 3, playsinline: 1, start: start, enablejsapi: 1,
+        };
+        if (location.protocol.startsWith('http')) vars.origin = location.origin;
+
+        yt = new YT.Player('stage', {
+            width: '100%', height: '100%', videoId: id, playerVars: vars,
+            events: {
+                onReady: (e) => { e.target.setVolume(volume); e.target.playVideo(); },
+                onStateChange: (e) => {
+                    if (e.data === YT.PlayerState.PLAYING) showMsg('');
+                    if (e.data === YT.PlayerState.PLAYING && !fixedSeek) {
+                        fixedSeek = true;
+                        const dur = yt.getDuration();
+                        if (loop && dur > 0 && start >= dur) yt.seekTo(start % dur, true);
+                    }
+                    if (e.data === YT.PlayerState.ENDED && loop) { yt.seekTo(0, true); yt.playVideo(); }
+                },
+                onError: (e) => {
+                    const hints = {
+                        2: 'Neplatný odkaz na video.',
+                        100: 'Video neexistuje nebo je soukromé.',
+                        101: 'Autor zakázal přehrávání mimo YouTube.',
+                        150: 'Autor zakázal přehrávání mimo YouTube.',
+                        153: 'Chyba 153: YouTube nedostal Referer. Hostuj player.html na https stránce.',
+                    };
+                    showMsg(hints[e.data] || ('Video nelze přehrát (chyba ' + e.data + ').'));
+                },
+            },
+        });
+    };
+} else if (kind === 'file' && src) {
+    vid = document.createElement('video');
+    vid.autoplay = true;
+    vid.loop = loop;
+    vid.playsInline = true;
+    vid.src = src;
+    vid.volume = volume / 100;
+    vid.addEventListener('loadedmetadata', () => {
+        if (start > 0 && vid.duration) vid.currentTime = loop ? start % vid.duration : Math.min(start, vid.duration);
+    });
+    vid.addEventListener('error', () => showMsg('Soubor nelze přehrát.'));
+    vid.addEventListener('playing', () => showMsg(''));
+    document.getElementById('stage').appendChild(vid);
+    vid.play().catch(() => { vid.muted = true; vid.play(); });
+} else {
+    showMsg('Chybí odkaz na video.');
+}
+</script>
+</body>
+</html>
